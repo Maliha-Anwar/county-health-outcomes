@@ -14,9 +14,11 @@ format:
 
 ## Introduction
 
-This analysis examines how county-level socioeconomic conditions are associated with health outcomes across approximately 3,000 U.S. counties. Using data from the [County Health Rankings & Roadmaps](https://www.countyhealthrankings.org/) 2025 release, I wanted explore the relationship between key structural factors such as including income, health insurance coverage, educational attainment, and employment and premature mortality.
+Premature death is measured as Years of Potential Life Lost (YPLL) before age 75 and varies widely across U.S. counties. This analysis explores how key structural factors such as income, health insurance coverage, educational attainment, and employment are associated with premature mortality. Understanding these relationships is beneficial in informing public health policy and resource allocation by identifying structural conditions linked to higher risk of early death.
 
-**Research Question:** How do county-level socioeconomic factors (median household income, uninsurance rate, educational attainment, and unemployment) predict premature death rates in the United States?
+**Research Question:** How do county-level socioeconomic factors predict premature death rates in the United States?
+
+This is a county-level (ecological) analysis, therefore the pattern describe counties, not individuals. I explore this question using the 2025 [County Health Rankings & Roadmaps](https://www.countyhealthrankings.org/) data through exploratory visualization, correlation analysis, and multiple linear regression.
 
 ## Setup
 
@@ -31,54 +33,51 @@ library(skimr)
 library(corrplot)
 library(broom)
 library(gtsummary)
-library(broom.helpers)
 ```
 
 ## Data Import
 
-The data comes from the County Health Rankings 2025 CSV Analytic Data file, which contains 796 columns across 3,200+ counties. The raw CSV file contains two header rows: the first provides human-readable variable names, while the second contains standardized variable codes (e.g., `v001_rawvalue`). To ensure consistent variable naming, I skipped the first header row during import and retained the the coded variable names.
+The County Health Rankings CSV has two header rows: the first with human-readable names ("Premature Death raw value") and the second with variable codes ("v001_rawvalue"). To ensure consistent variable naming, I skipped the first header row and used the coded variable names. They are also are easier to work with programmatically.
+
+The file contains 796 columns across 3,200+ counties.
 
 ```{r}
-
 #| label: import
 #| message: false
 
-# Import data, skipping the human-readable header row
-# Row 1 = human-readable names, Row 2 = variable codes (we use these)
 chr_raw <- read_csv(
   "data-raw/analytic_data2025_v3.csv",
-  skip = 1,                          # skip the human-readable header
+  skip = 1,
   na = c("", "NA"),
   show_col_types = FALSE
 ) |>
   clean_names()
 
-# Quick look at dimensions
 cat("Rows:", nrow(chr_raw), "| Columns:", ncol(chr_raw))
 ```
 
 ## Data Cleaning
 
-### Select and Rename Variables
+### Selecting Variables
 
-The raw file used coded column names. Here's what each of the selected codes mean:
+Out of 796 columns, I selected eight measures that are relevant to the research question. The table below maps the coded column names to what they actually represent.
 
-| Code | Measure                                                    |
-|------|------------------------------------------------------------|
-| v001 | Premature Death — Years of Potential Life Lost per 100,000 |
-| v060 | Diabetes Prevalence (proportion)                           |
-| v085 | Uninsured (proportion)                                     |
-| v063 | Median Household Income (\$)                               |
-| v069 | Some College (proportion)                                  |
-| v023 | Unemployment (proportion)                                  |
-| v009 | Adult Smoking (proportion)                                 |
-| v011 | Adult Obesity (proportion)                                 |
+| Code | Measure                 | Units            |
+|------|-------------------------|------------------|
+| v001 | Premature death         | YPLL per 100,000 |
+| v060 | Diabetes prevalence     | Proportion       |
+| v085 | Uninsured               | Proportion       |
+| v063 | Median household income | Dollars          |
+| v069 | Some college            | Proportion       |
+| v023 | Unemployment            | Proportion       |
+| v009 | Adult smoking           | Proportion       |
+| v011 | Adult obesity           | Proportion       |
 
 ```{r}
 #| label: select-rename
 
 health_df <- chr_raw |>
-  # Remove state-level summary rows (county code "000")
+  # Row with countycode "000" is the state-level summary — remove these
   filter(countycode != "000") |>
   select(
     fips            = fipscode,
@@ -97,53 +96,42 @@ health_df <- chr_raw |>
     across(premature_death:adult_obesity, as.numeric)
   )
 
-glimpse(health_df)
+cat("Counties selected:", nrow(health_df))
 ```
 
-### Check Missingness
+### Checking for Missing Data
 
-Before dropping any rows, let's see how much data is missing for each variable.
+Before dropping anything from the dataset, I wanted to see which variables have missing values and how many. This helps decide whether to drop rows, impute, or accept the gaps.
 
 ```{r}
 #| label: missingness
 
-health_df |>
+missing_summary <- health_df |>
   summarise(across(everything(), ~sum(is.na(.)))) |>
   pivot_longer(
     everything(),
     names_to  = "variable",
     values_to = "n_missing"
   ) |>
-  mutate(
-    pct_missing = round(n_missing / nrow(health_df) * 100, 1)
-  ) |>
+  mutate(pct_missing = round(n_missing / nrow(health_df) * 100, 1)) |>
   arrange(desc(n_missing))
+
+missing_summary
 ```
 
-### Handle Missing Data
+### Cleaning Decisions
+
+Based on the missingness (see above), here's what I decided to do:
+
+-   **Drop counties missing premature death** (the outcome variable), since there is no way to analyze the outcome if it's not there.
+-   **Keep counties with missing predictors for now.** R's `lm()` handles this with complete-case analysis by default, which means it will only use rows where all variables in the model are present. For the first round of analysis, I decided not to impute.
+-   **Convert proportions to percentages.** Several variables (diabetes, uninsured, smoking, etc.) were stored as proportions between 0 and 1. I find that converting them to percentages makes the regression coefficients easier to interpret. For example: A "1 percentage-point increase" is more intuitive than "a 0.01 increase."
 
 ```{r}
 #| label: clean
 
-# Drop rows missing the primary outcome variable
 health_clean <- health_df |>
-  drop_na(premature_death)
-
-cat(
-  "Kept:", nrow(health_clean), "counties\n",
-  "Dropped:", nrow(health_df) - nrow(health_clean),
-  "counties missing premature death data\n"
-)
-```
-
-### Convert Proportions to Percentages
-
-Several variables are stored as proportions (0 to 1). Let's convert them to percentages for easier interpretation.
-
-```{r}
-#| label: convert-pct
-
-health_clean <- health_clean |>
+  drop_na(premature_death) |>
   mutate(
     diabetes_pct   = diabetes_pct * 100,
     uninsured_pct  = uninsured_pct * 100,
@@ -153,13 +141,21 @@ health_clean <- health_clean |>
     adult_obesity  = adult_obesity * 100
   )
 
-# Save cleaned data
+cat(
+  "Counties retained:", nrow(health_clean), "\n",
+  "Counties dropped:", nrow(health_df) - nrow(health_clean),
+  "(missing premature death data)\n"
+)
+
+# Save for use in other scripts or the Shiny dashboard
 write_csv(health_clean, "data-processed/health_clean.csv")
 ```
 
 ## Exploratory Data Analysis
 
 ### Summary Statistics
+
+I started the analysis by taking a broad look at all the numeric variables, their ranges, means, and how spread out they are.
 
 ```{r}
 #| label: summary-stats
@@ -169,17 +165,19 @@ health_clean |>
   skim()
 ```
 
-### Distribution of Premature Death Rate
+### Distribution of Premature Death Rates
+
+Before modeling, I wanted to see what the outcome variable looks like. Is it roughly normal? Are there any extreme outliers?
 
 ```{r}
-#| label: fig-premature-death-dist
-#| fig-cap: "Distribution of premature death rates across U.S. counties"
+#| label: fig-outcome-dist
+#| fig-cap: "Distribution of premature death rates across U.S. counties, 2025"
 
 ggplot(health_clean, aes(x = premature_death)) +
   geom_histogram(bins = 50, fill = "#c0392b", alpha = 0.8) +
   labs(
-    title    = "Distribution of Premature Death Rate by County",
-    subtitle = "Years of Potential Life Lost per 100,000 population",
+    title = "Distribution of Premature Death Rate by County",
+    subtitle = "Years of Potential Life Lost per 100,000",
     x = "YPLL per 100,000",
     y = "Number of Counties"
   ) +
@@ -188,17 +186,19 @@ ggplot(health_clean, aes(x = premature_death)) +
 
 ### Income vs. Premature Death
 
+This is the relationship I'm most interested in. Income is often considered a "fundamental cause" of health in public health literature. In the U.S., income shapes access to almost everything ranging from housing, food, healthcare to safe environments/neighborhoods.
+
 ```{r}
 #| label: fig-income-scatter
-#| fig-cap: "Relationship between median household income and premature death rate"
+#| fig-cap: "Counties with higher median incomes tend to have lower premature death rates"
 
 ggplot(health_clean, aes(x = median_income, y = premature_death)) +
   geom_point(alpha = 0.25, color = "#1a7a6d", size = 1.5) +
   geom_smooth(method = "loess", color = "#c0392b", se = TRUE, alpha = 0.15) +
   scale_x_continuous(labels = scales::dollar) +
   labs(
-    title    = "Higher-Income Counties Tend to Have Lower Premature Death Rates",
-    subtitle = "Each point represents one U.S. county",
+    title = "Median Household Income vs. Premature Death Rate",
+    subtitle = "Each point is one U.S. county",
     x = "Median Household Income",
     y = "YPLL per 100,000"
   ) +
@@ -207,15 +207,18 @@ ggplot(health_clean, aes(x = median_income, y = premature_death)) +
 
 ### Uninsured Rate vs. Premature Death
 
+Insurance coverage is another factor to consider. Counties with more uninsured residents may have less access to preventive care and treatment.
+
 ```{r}
 #| label: fig-uninsured-scatter
-#| fig-cap: "Relationship between uninsured rate and premature death rate"
+#| fig-cap: "Counties with higher uninsured rates tend to have higher premature death rates"
 
 ggplot(health_clean, aes(x = uninsured_pct, y = premature_death)) +
   geom_point(alpha = 0.25, color = "#2c3e50", size = 1.5) +
   geom_smooth(method = "loess", color = "#c0392b", se = TRUE, alpha = 0.15) +
   labs(
-    title    = "Counties with Higher Uninsured Rates Tend to Have Higher Premature Death",
+    title = "Uninsured Rate vs. Premature Death Rate",
+    subtitle = "Each point is one U.S. county",
     x = "Uninsured (%)",
     y = "YPLL per 100,000"
   ) +
@@ -224,28 +227,38 @@ ggplot(health_clean, aes(x = uninsured_pct, y = premature_death)) +
 
 ### Correlation Matrix
 
+Before putting variables into a regression together, I want to check how strongly they correlate with each other. If two predictors are highly correlated (roughly r \> 0.7), including both could cause multicollinearity. It means the predictors are so closely related that the model has trouble separating which one is actually driving the effect.
+
 ```{r}
 #| label: fig-correlation
-#| fig-cap: "Correlation matrix of all numeric health and socioeconomic variables"
+#| fig-cap: "Correlation matrix of health and socioeconomic variables"
 #| fig-height: 6
 #| fig-width: 7
 
-health_clean |>
+cor_matrix <- health_clean |>
   select(premature_death:adult_obesity) |>
-  cor(use = "pairwise.complete.obs") |>
-  corrplot(
-    method   = "color",
-    type     = "upper",
-    tl.col   = "black",
-    tl.cex   = 0.85,
-    addCoef.col = "black",
-    number.cex  = 0.7
-  )
+  cor(use = "pairwise.complete.obs")
+
+corrplot(
+  cor_matrix,
+  method      = "color",
+  type        = "upper",
+  tl.col      = "black",
+  tl.cex      = 0.85,
+  addCoef.col = "black",
+  number.cex  = 0.7
+)
 ```
 
 ## Regression Modeling
 
-### Fit the Model
+### The Model
+
+I used multiple linear regression to see how each socioeconomic factor relates to premature death rate when other factors are accounted for.
+
+The model: `premature_death ~ median_income + uninsured_pct + pct_college + pct_unemployed + diabetes_pct`
+
+I included diabetes prevalence because it captures some of the chronic disease burden in a county. I left smoking and obesity out because they are highly correlated with the other predictors and with each other, which would cause multicollinearity issue.
 
 ```{r}
 #| label: model-fit
@@ -256,14 +269,18 @@ model <- lm(
   data = health_clean
 )
 
-glance(model)
+# Model summary: R-squared, F-statistic, etc.
+glance(model) |>
+  select(r.squared, adj.r.squared, sigma, statistic, p.value, nobs)
 ```
 
-### Regression Table
+### Coefficient Table
+
+This table shows the estimated effect of each predictor on premature death rate, along with 95% confidence intervals and p-values. Statistically significant predictors (p \< 0.05) are bolded.
 
 ```{r}
 #| label: tbl-regression
-#| tbl-cap: "Multiple linear regression: predictors of premature death rate"
+#| tbl-cap: "Multiple linear regression: predictors of county-level premature death rate"
 
 model |>
   tbl_regression(
@@ -276,73 +293,7 @@ model |>
     )
   ) |>
   bold_p()
+
 ```
 
-### Diagnostic Plots
-
-These plots help us check the assumptions of linear regression: linearity, normality of residuals, and constant variance.
-
-```{r}
-#| label: fig-diagnostics
-#| fig-cap: "Regression diagnostic plots"
-#| fig-height: 8
-#| fig-width: 8
-#| layout-ncol: 2
-
-# Residuals vs Fitted
-aug <- augment(model)
-
-ggplot(aug, aes(.fitted, .resid)) +
-  geom_point(alpha = 0.25, color = "#1a7a6d") +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "#c0392b") +
-  labs(
-    title = "Residuals vs Fitted Values",
-    x     = "Fitted Values",
-    y     = "Residuals"
-  ) +
-  theme_minimal(base_size = 13)
-
-# Q-Q Plot
-ggplot(aug, aes(sample = .resid)) +
-  stat_qq(alpha = 0.25, color = "#1a7a6d") +
-  stat_qq_line(color = "#c0392b") +
-  labs(
-    title = "Normal Q-Q Plot of Residuals",
-    x     = "Theoretical Quantiles",
-    y     = "Sample Quantiles"
-  ) +
-  theme_minimal(base_size = 13)
-```
-
-### Interpret the Results
-
-```{r}
-#| label: interpret
-
-# Tidy coefficients with confidence intervals
-tidy(model, conf.int = TRUE) |>
-  mutate(across(where(is.numeric), ~round(., 4)))
-```
-
-> **Write your interpretation here.** For each predictor, describe:
->
-> -   The direction of the relationship (positive or negative)
-> -   The magnitude (what does a 1-unit change in the predictor mean for YPLL?)
-> -   Statistical significance (check the p-value and confidence interval)
->
-> For example: *"For every \$1,000 increase in median household income, premature death rate decreased by approximately X YPLL per 100,000, holding all other variables constant (p \< 0.001)."*
-
-## Limitations
-
--   **Ecological fallacy:** These are county-level associations. We cannot conclude that individuals with lower incomes have higher premature death rates — only that counties with lower median incomes tend to have higher premature death rates.
--   **Cross-sectional design:** This is a snapshot from one time period. We cannot establish causation.
--   **Missing data:** Some counties were excluded due to missing outcome data, which may introduce bias.
--   **Unmeasured confounders:** Factors like access to healthcare facilities, environmental exposures, and racial/ethnic composition are not included in this model.
-
-## Session Info
-
-```{r}
-#| label: session-info
-
-sessionInfo()
-```
+### 
