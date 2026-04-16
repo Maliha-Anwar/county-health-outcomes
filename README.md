@@ -72,6 +72,7 @@ The raw data is not included in this repo due to file size. The cleaned dataset 
 
 About This Project
 I originally worked on this analysis a while back to apply my data analysis skills to a public health research question. I recently decided to clean it up and put it on GitHub as a portfolio piece. My background is in applied public health research, and I'm actively expanding my quantitative toolkit in R.
+
 ## Author
 
 **Maliha Anwar** · Public Health Researcher
