@@ -296,4 +296,78 @@ model |>
 
 ```
 
-### 
+### Checking Model Assumptions
+
+Linear regression relies on a couple of key assumptions here:
+1. The residuals (the differences between predicted and actual values) are roughly normally distributed
+2. Their spread stays consistent across the range of predictions. 
+These two plots help check that.
+
+**What to look for:**
+
+-   **Residuals vs. Fitted:** If the model fits well, the points should look randomly scattered around the zero line with no obvious pattern. If they fan out in a funnel shape, that's a sign the model's predictions are less reliable at certain values.
+-   **Q-Q Plot:** The points should roughly follow the diagonal line. If they curve away at the ends, it means the residuals aren't as normally distributed as the model assumes.
+
+```{r}
+#| label: fig-diagnostics
+#| fig-cap: "Regression diagnostic plots"
+#| fig-height: 4.5
+#| layout-ncol: 2
+
+aug <- augment(model)
+
+# Residuals vs Fitted
+ggplot(aug, aes(.fitted, .resid)) +
+  geom_point(alpha = 0.25, color = "#1a7a6d") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "#c0392b") +
+  labs(
+    title = "Residuals vs. Fitted Values",
+    x     = "Fitted Values",
+    y     = "Residuals"
+  ) +
+  theme_minimal(base_size = 13)
+
+# Q-Q plot
+ggplot(aug, aes(sample = .resid)) +
+  stat_qq(alpha = 0.25, color = "#1a7a6d") +
+  stat_qq_line(color = "#c0392b") +
+  labs(
+    title = "Normal Q-Q Plot of Residuals",
+    x     = "Theoretical Quantiles",
+    y     = "Sample Quantiles"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+### Interpreting the Results
+The model explains about 53% of the variation in premature death rates across counties (adjusted R² = 0.525). In other words, roughly half of the differences between counties come down to these five factors. The other half is likely driven by things not in this model, like racial segregation, environmental conditions, and healthcare access.
+
+All five predictors were statistically significant (p < 0.001).
+
+**Median Household Income** (β = -0.08): For every additional dollar in median income, premature death drops by 0.08 YPLL per 100,000. That sounds small, but it adds up. $10,000 difference in income translates to about 800 fewer YPLL. The scatter plot also shows this isn't a straight-line relationship: premature death drops sharply between $25,000 and $75,000, then levels off.
+
+**Diabetes Prevalence** (β = 677): This was the strongest predictor. A 1 percentage-point increase in diabetes prevalence is linked to 677 additional YPLL per 100,000. Diabetes typically shows up as a comorbidity with heart disease and hypertension, so this coefficient is likely reflecting a broader pattern of chronic illness.
+
+**Unemployment (β = 183)**: A 1 percentage-point increase in unemployment is linked to 183 additional YPLL per 100,000. Unemployment impacts many things that affect health such as income, insurance, mental health, and access to resources.
+
+**Uninsured**(β = -44): I found this one surprising. A higher uninsured rate was actually associated with lower premature death, which is the opposite of what I expected. Looking at the scatter plot, the relationship between uninsured rate and premature death is weak and mostly flat. One explanation I could come up with is that once income and the other predictors are accounted for, the uninsured variable may be picking up something else, for example, counties with high uninsured rates in the South and Southwest tend to have younger populations, which could bring YPLL down despite poor coverage. This was a good reminder that regression coefficients shouldn't be read in isolation.
+
+**Some College** (β = -25): A 1 percentage-point increase in college attendance is linked to 25 fewer YPLL per 100,000. In public health, it's well established that education levels are correlated with higher life expectancy. Education connects to health in several ways like health literacy, better job opportunities and income, and being able to navigate the healthcare system.
+
+## Limitations
+There are several important caveats to keep in mind as you go through this analysis:
+
+-   **Ecological fallacy.** This analysis uses county-level data. I can say that counties with lower incomes tend to have higher premature death rates, but I cannot make the same claim for individuals based on this analysis alone.
+-   **Cross-sectional design.** This is a single snapshot in time, not a trend. I can describe associations but not establish causation. Lower income doesn't necessarily *cause* higher premature death. There may be shared underlying causes driving both.
+-   **Missing data.** 64 counties were dropped due to missing premature death data. These tend to be very small or rural counties, so the results may not fully represent the most underserved areas.
+-   **Unmeasured confounders.** There are many factors that influence health outcomes are not in this model — racial segregation, environmental exposures, healthcare facility density, housing quality to name a few. The R-squared value reflects how much variation the chosen predictors explain, but there's clearly more to the story.
+-   **Model specification.** I used a linear model, which assumes a straight-line relationship between each predictor and the outcome. The scatter plots suggest this is a reasonable, but the relationship between income and premature death is likely nonlinear (the loess curve hints at this).
+
+## Session Info
+
+```{r}
+#| label: session-info
+
+sessionInfo()
+```
+
