@@ -8,7 +8,12 @@ This project uses the 2025 County Health Rankings dataset to explore how socioec
 
 ## Key Findings
 
-> *Findings will be added here as the analysis progresses.*
+The five socioeconomic predictors in the model explain approximately 53% of the variation in premature death rates across U.S. counties (adjusted R² = 0.525). All predictors were statistically significant (p < 0.001).
+
+- **Diabetes prevalence** was the strongest predictor: each 1 percentage-point increase was associated with 677 additional years of potential life lost per 100,000.
+- **Income** showed a strong protective relationship — a $10,000 difference in county median income corresponded to roughly 800 fewer YPLL per 100,000.
+- **Unemployment** was associated with 183 additional YPLL per percentage-point increase.
+- The **uninsured rate** showed an unexpected negative association (β = -44), likely due to confounding with age structure and regional demographics once other predictors were accounted for.
 
 ---
 
@@ -70,8 +75,7 @@ The raw data is not included in this repo due to file size. The cleaned dataset 
 
 ## About This Project
 
-About This Project
-I originally worked on this analysis a while back to apply my data analysis skills to a public health research question. I recently decided to clean it up and put it on GitHub as a portfolio piece. My background is in applied public health research, and I'm actively expanding my quantitative toolkit in R.
+I originally worked on this analysis a while back to apply my data analysis skills to a public health research question. I recently decided to use the updated data set, clean it up and put it on GitHub as a portfolio piece. My background is in applied public health research, and I'm actively expanding my quantitative toolkit in R.
 
 ## Author
 
